@@ -8,5 +8,5 @@ Parameters = "d96e819e-fc66-5662-9728-84c9c7592b0a"
 ROCKernels = "7eb9e9f0-4bd3-4c4c-8bef-26bd9629d9b9"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
-[compat]
-julia = "1.6"
+[extras]
+CUDA_Runtime_jll = "76a88914-d11a-5bdc-97e0-2f5a05c973a2"

@@ -236,6 +236,8 @@ public:
     size_t local = wgsize;
     size_t shared = p.ntypes() * sizeof(FFParams);
 
+    std::cout << "Launching kernel with " << global << " blocks and " << local << " threads per block" << std::endl;
+
     for (size_t i = 0; i < p.totalIterations(); ++i) {
       auto kernelStart = now();
       hipLaunchKernelGGL(HIP_KERNEL_NAME(fasten_main<PPWI>), dim3(global), dim3(local), shared, 0,           //

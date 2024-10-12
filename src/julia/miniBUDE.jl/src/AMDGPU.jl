@@ -2,30 +2,52 @@ include("BUDE.jl")
 using AMDGPU, StaticArrays
 
 
-# AMDGPU.agents()'s internal iteration order isn't stable
+# # AMDGPU.agents()'s internal iteration order isn't stable
+# function gpu_agents_in_repr_order()
+#   # XXX if we select anything other than :gpu, we get 
+#   # HSA_STATUS_ERROR_INVALID_AGENT on the first kernel submission
+#   sort(AMDGPU.get_agents(:gpu), by = repr)
+# end
+
 function gpu_agents_in_repr_order()
-  # XXX if we select anything other than :gpu, we get 
-  # HSA_STATUS_ERROR_INVALID_AGENT on the first kernel submission
-  sort(AMDGPU.get_agents(:gpu), by = repr)
+  # Use AMDGPU.devices() instead of get_agents
+  return sort(AMDGPU.devices(), by = repr)
 end
 
+# function devices()::Vector{DeviceWithRepr}
+#   try
+#     map(d -> (d, repr(d), "AMDGPU.jl"), gpu_agents_in_repr_order())
+#   catch
+#     # probably unsupported
+#     []
+#   end
+# end
+
 function devices()::Vector{DeviceWithRepr}
-  try
-    map(d -> (d, repr(d), "AMDGPU.jl"), gpu_agents_in_repr_order())
-  catch
-    # probably unsupported
-    []
-  end
+  #println("AMDGPU.functional() = ", AMDGPU.functional())
+  #println("AMDGPU.device() = ", AMDGPU.device())
+  #println("AMDGPU.devices() = ", AMDGPU.devices())  
+  println("Checking for AMDGPU devices...")
+  devices = AMDGPU.devices()
+  println("Found devices: ", devices)
+  return map(d -> (d, repr(d), "AMDGPU.jl"), devices) #anonymous function (lambda)
 end
+
 
 
 function run(params::Params, deck::Deck, device::DeviceWithRepr)
 
   # XXX AMDGPU doesn't expose an API for setting the default like CUDA.device!()
   # but AMDGPU.get_default_agent returns DEFAULT_AGENT so we can do it by hand
-  AMDGPU.DEFAULT_AGENT[] = device[1]
-  println("Using GPU HSA device: $(AMDGPU.get_name(device[1])) ($(repr(device[1])))")
+  available_devices = devices()
 
+  println("Available devices:", available_devices)
+
+  # AMDGPU.DEFAULT_AGENT[] = device[1]
+  # println("Using GPU HSA device: $(AMDGPU.get_name(device[1])) ($(repr(device[1])))")
+
+  AMDGPU.device!(device[1])
+  println("Using GPU device: $(AMDGPU.device())")
 
   protein = ROCArray{Atom}(deck.protein)
   ligand = ROCArray{Atom}(deck.ligand)
@@ -38,13 +60,17 @@ function run(params::Params, deck::Deck, device::DeviceWithRepr)
   nposes::Int = size(deck.poses)[2]
 
   etotals = ROCArray{Float32}(undef, nposes)
-  blocks_size = ceil(UInt, nposes / params.ppwi)
-  nthreads = params.wgsize
+  #blocks_size = ceil(UInt, nposes / params.ppwi)
+  #nthreads = params.wgsize
+
+  blocks_size = 256
+  nthreads = 64
 
   println("Using kernel parameters: <<<$(blocks_size),$(nthreads)>>> 1:$nposes")
 
   # warmup
-  AMDGPU.wait(
+  # CHANGED AMDGPU.wait to AMDGPU.@sync
+  AMDGPU.@sync begin
     @roc groupsize = nthreads gridsize = blocks_size fasten_main(
       nprotein,
       nligand,
@@ -57,10 +83,11 @@ function run(params::Params, deck::Deck, device::DeviceWithRepr)
       etotals,
       Val(convert(Int, params.ppwi)),
     )
-  )
+  end
+
   elapsed = @elapsed begin
     for _ = 1:params.iterations
-      AMDGPU.wait(
+      AMDGPU.@sync begin
         @roc groupsize = nthreads gridsize = blocks_size fasten_main(
           nprotein,
           nligand,
@@ -73,7 +100,7 @@ function run(params::Params, deck::Deck, device::DeviceWithRepr)
           etotals,
           Val(convert(Int, params.ppwi)),
         )
-      )
+      end
     end
   end
 

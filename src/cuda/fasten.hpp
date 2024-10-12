@@ -274,6 +274,8 @@ public:
     size_t local = wgsize;
     size_t shared = p.ntypes() * sizeof(FFParams);
 
+    std::cout << "Launching kernel with " << global << " blocks and " << local << " threads per block" << std::endl;
+
     for (size_t i = 0; i < p.totalIterations(); ++i) {
       auto kernelStart = now();
       fasten_main<PPWI><<<global, local, shared>>>(                                           //

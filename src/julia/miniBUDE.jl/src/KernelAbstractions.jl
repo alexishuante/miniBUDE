@@ -1,16 +1,47 @@
 include("BUDE.jl")
-using ROCKernels, CUDAKernels, KernelAbstractions, StaticArrays, CUDA, AMDGPU
+#using ROCKernels, CUDAKernels, KernelAbstractions, StaticArrays, CUDA, AMDGPU
+#using CUDAKernels
+using ROCKernels
+using KernelAbstractions, StaticArrays, CUDA, AMDGPU
 
 @enum Backend cuda rocm cpu
 
 
+# function list_rocm_devices()::Vector{DeviceWithRepr}
+#   try
+#     # AMDGPU.agents()'s internal iteration order isn't stable
+#     sorted = sort(AMDGPU.get_agents(:gpu), by = repr)
+#     map(x -> (x, repr(x), rocm), sorted)
+#   catch
+#     # probably unsupported
+#     []
+#   end
+# end
+
+# function list_rocm_devices()::Vector{DeviceWithRepr}
+#   println("AMDGPU.functional() = ", AMDGPU.functional())
+#   println("AMDGPU.version() = ", AMDGPU.version())
+#   println("AMDGPU.devices() = ", AMDGPU.devices())
+#   println("Attempting to list ROCm devices...")
+#   try
+#     agents = AMDGPU.get_agents(:gpu)
+#     println("Found $(length(agents)) ROCm device(s)")
+#     sorted = sort(agents, by = repr)
+#     map(x -> (x, repr(x), rocm), sorted)
+#   catch e
+#     println("Error detecting ROCm devices: ", e)
+#     []
+#   end
+# end
+
 function list_rocm_devices()::Vector{DeviceWithRepr}
+  println("Attempting to list ROCm devices...")
   try
-    # AMDGPU.agents()'s internal iteration order isn't stable
-    sorted = sort(AMDGPU.get_agents(:gpu), by = repr)
-    map(x -> (x, repr(x), rocm), sorted)
-  catch
-    # probably unsupported
+    devices = AMDGPU.devices()
+    println("Found $(length(devices)) ROCm device(s)")
+    map(d -> (d, repr(d), rocm), devices)
+  catch e
+    println("Error detecting ROCm devices: ", e)
     []
   end
 end
@@ -23,7 +54,7 @@ end
 function devices()::Vector{DeviceWithRepr}
   cudas = list_cuda_devices()
   rocms = list_rocm_devices()
-  cpus = [(undef, "$(Sys.cpu_info()[1].model) ($(Threads.nthreads())T)", cpu)]
+  cpus = [(undef, "$(Sys.cpu_info()[1].model) ($(Threads.nthreads())T)", cpu)] 
   vcat(cpus, cudas, rocms)
 end
 
@@ -31,8 +62,12 @@ function run(params::Params, deck::Deck, device::DeviceWithRepr)
 
 
   nposes::Int64 = size(deck.poses)[2]
-  blocks_size::Int64 = ceil(Int64, nposes / params.ppwi)
-  nthreads::Int64 = params.wgsize
+  blocks_size::Int64 = ceil(Int64, nposes / params.ppwi) #  #In KernelAbstractions, ndrange specifies the total number of work-items (or threads) to launch, not the number of blocks.
+  nthreads::Int64 = params.wgsize # nthreads is used to specify the number of threads per work group (equivalent to threads per block in CUDA terminology).
+
+  #blocks_size::Int64 = 256
+  #nthreads::Int64 = 64
+
 
   (selected, _, backend) = device
   println("KernelAbstractions Backend: $backend")
@@ -62,23 +97,48 @@ function run(params::Params, deck::Deck, device::DeviceWithRepr)
     etotals = CuArray{Float32}(undef, nposes)
     backend_impl = CUDADevice()
   elseif backend == rocm
-    AMDGPU.DEFAULT_AGENT[] = selected
-    if AMDGPU.get_default_agent() != selected
-      error("Cannot select HSA device, expecting $selected, but got $(AMDGPU.get_default_agent())")
+    # Get the list of available devices
+    available_devices = AMDGPU.devices()
+    
+    # Find the selected device in the list of available devices
+    selected_index = findfirst(d -> d == selected, available_devices)
+    
+    if isnothing(selected_index)
+        error("Selected ROCm device not found in the list of available devices")
     end
-    println("Using GPU HSA device: $(AMDGPU.get_name(selected)) ($(repr(selected)))")
+    
+    # We're not explicitly setting the device, but using the selected one
+    current_device = selected
+    
+    println("Using ROCm device: $(repr(current_device))")
 
+    # Use the ROCArrays without specifying a context
     protein = ROCArray{Atom}(deck.protein)
     ligand = ROCArray{Atom}(deck.ligand)
     forcefield = ROCArray{FFParams}(deck.forcefield)
     poses = ROCArray{Float32,2}(deck.poses)
     etotals = ROCArray{Float32}(undef, nposes)
     backend_impl = ROCDevice()
+    println("ROCDevice:", ROCDevice())
+    # AMDGPU.DEFAULT_AGENT[] = selected
+    # if AMDGPU.get_default_agent() != selected
+    #   error("Cannot select HSA device, expecting $selected, but got $(AMDGPU.get_default_agent())")
+    # end
+    # println("Using GPU HSA device: $(AMDGPU.get_name(selected)) ($(repr(selected)))")
+
+    # protein = ROCArray{Atom}(deck.protein)
+    # ligand = ROCArray{Atom}(deck.ligand)
+    # forcefield = ROCArray{FFParams}(deck.forcefield)
+    # poses = ROCArray{Float32,2}(deck.poses)
+    # etotals = ROCArray{Float32}(undef, nposes)
+    # backend_impl = ROCDevice()
   else
     error("unsupported backend $(backend)")
   end
 
-  println("Using kernel parameters: <<<$blocks_size,$nthreads>>> 1:$nposes")
+  #println("Using kernel parameters: <<<$blocks_size,$nthreads>>> 1:$nposes") 
+  
+  #In KernelAbstractions, ndrange specifies the total number of work-items (or threads) to launch, not the number of blocks.
 
 
   kernel! = fasten_main(backend_impl, nthreads, blocks_size)
@@ -129,6 +189,9 @@ end
 
   gid = @index(Group)
   lid = @index(Local)
+
+  #println("GID", gid)
+  #println("lid", lid)
 
   #  Get index of first TD
   ix = (gid - 1) * wgsize * PPWI + lid

@@ -4,9 +4,10 @@ using Printf
 using Base: Float64, Float32, Int, Int32
 import Base.read
 
-const DefaultInterations = 8
+const DefaultInterations = 10
 const DefaultNPoses = 65536
 const RefNPoses = 65536
+#const DefaultWGSize = 64
 const DefaultWGSize = 64
 const DefaultPPWI = 4
 
@@ -62,7 +63,8 @@ function read(io::IO, ::Type{FFParams})
 end
 
 @with_kw mutable struct Params
-  device::String = "1"
+  #device::String = "1"
+  device::String = "2" #had to change it in order to detect the cuda and amdgpu device
   list::Bool = false
   numposes::UInt = DefaultNPoses
   iterations::UInt = DefaultInterations
@@ -161,6 +163,8 @@ function main()
 
 
   ds = devices()
+  #ds = AMDGPU.device()
+  println("Detected devices: ", ds)
 
   if params.list
     for (i, (_, name, type)) in enumerate(ds)
@@ -168,6 +172,10 @@ function main()
     end
     exit(0)
   end
+
+  # if isempty(ds)
+  #   error("No devices found")
+  # end
 
   deviceIndex = try
     index = parse(Int, params.device)
@@ -186,15 +194,16 @@ function main()
 
   poses = permutedims( # reshape is column order so we flip it back again
     reshape(
-      read_structs("$(params.deck)/poses.in", Float32),  # read poses as one long array
+      #read_structs("$(params.deck)/poses.in", Float32),  # read poses as one long array
+      read_structs("../../../data/bm1/poses.in", Float32),
       (params.numposes, 6), # reshape it to 6 slices of numposes sized rows
     ),
   )
 
   deck = Deck(
-    read_structs("$(params.deck)/protein.in", Atom),
-    read_structs("$(params.deck)/ligand.in", Atom),
-    read_structs("$(params.deck)/forcefield.in", FFParams),
+    read_structs("../../../data/bm1/protein.in", Atom),
+    read_structs("../../../data/bm1/ligand.in", Atom),
+    read_structs("../../../data/bm1/forcefield.in", FFParams),
     poses,
   )
 
@@ -226,7 +235,7 @@ function main()
     end
   end
 
-  ref_energies = open("$(params.deck)/ref_energies.out", "r")
+  ref_energies = open("../../../data/bm1/ref_energies.out", "r")
   n_ref_poses = size(deck.poses)[2]
   if n_ref_poses > RefNPoses
     println("Only validating the first $(RefNPoses) poses")

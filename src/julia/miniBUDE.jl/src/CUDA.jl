@@ -1,5 +1,9 @@
 include("BUDE.jl")
-using CUDA, StaticArrays
+using Pkg
+using StaticArrays
+Pkg.add(; name = "CUDA", version = "v5.4.3")
+using CUDA
+#println("CUDA version: ", CUDA.versioninfo())
 
 
 function devices()::Vector{DeviceWithRepr}
@@ -35,6 +39,7 @@ function run(params::Params, deck::Deck, device::DeviceWithRepr)
   nthreads = params.wgsize
 
   println("Using kernel parameters: <<<$(nblocks),$(nthreads)>>> 1:$nposes")
+  println(CUDA.versioninfo())
 
   shared = false
   shmem_bytes = shared ? sizeof(FFParams) * nforcefield : 0
@@ -108,17 +113,20 @@ end
   etot = MArray{Tuple{PPWI},Float32}(undef)
   transform = MArray{Tuple{PPWI,3},Vec4f32}(undef)
 
+  #@cuprintln("Type of global_forcefield: ", typeof(global_forcefield))
+  #@cuprintln("Type of nforcefield: ", typeof(nforcefield))
+  #@cuprintln("Type of nforcefield: ", typeof(nforcefield))
 
   if Shared
     forcefield = @cuDynamicSharedMem(FFParams, (nforcefield))
     if ix < nforcefield
       @inbounds forcefield[ix] = global_forcefield[ix]
     end
+    #@cuprintln("Using shared memory for forcefield")
   else
     forcefield = global_forcefield
+    #@cuprintln("Using global memory for forcefield")
   end
-
-
 
   lsz = blockDim().x
   @simd for i = 1:PPWI
@@ -146,6 +154,7 @@ end
 
     @inbounds l_atom::Atom = ligand[il]
     @inbounds l_params::FFParams = forcefield[l_atom.type+1]
+
     lhphb_ltz::Bool = l_params.hphb < Zero
     lhphb_gtz::Bool = l_params.hphb > Zero
 
@@ -219,6 +228,7 @@ end
         dslv_e::Float32 = dslv_init * ((distbb < distdslv && phphb_nz) ? One : Zero)
         dslv_e *= (zone1 ? One : coeff)
         @inbounds etot[i] += dslv_e
+
       end
     end
   end
@@ -229,6 +239,7 @@ end
       @inbounds etotals[td_base+(i-1)*blockDim().x] = etot[i] * Half
     end
   end
+
 
   nothing
 end

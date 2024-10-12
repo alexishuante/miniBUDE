@@ -2,8 +2,9 @@ include("BUDE.jl")
 using oneAPI, StaticArrays
 
 function devices()::Vector{DeviceWithRepr}
-  all = map(oneL0.devices, oneL0.drivers()) |> Iterators.flatten |> Iterators.collect
-  map(dev -> (dev, repr("text/plain", dev), "oneAPi.jl"), all)
+  #all = map(oneL0.devices, oneL0.drivers()) |> Iterators.flatten |> Iterators.collect
+  all = Base.collect(Iterators.flatten(map(oneL0.devices, oneL0.drivers())))
+  map(dev -> (dev, repr("text/plain", dev), "oneAPI.jl"), all)
 end
 
 
@@ -26,6 +27,7 @@ function run(params::Params, deck::Deck, device::DeviceWithRepr)
 
   etotals = oneArray{Float32}(undef, nposes)
   blocks_size = ceil(UInt, nposes / params.ppwi)
+  #blocks_size = 256
   nthreads = params.wgsize
 
   println("Using kernel parameters: <<<$(blocks_size),$(nthreads)>>> 1:$nposes")

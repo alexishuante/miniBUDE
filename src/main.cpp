@@ -157,7 +157,7 @@ parseParams(const std::vector<std::string> &args) {
 
   // Defaults
   params.iterations = DEFAULT_ITERS;
-  params.warmupIterations = 2;
+  params.warmupIterations = 1;
   params.deckDir = DATA_DIR;
   params.outRows = DEFAULT_ENERGY_ENTRIES;
 

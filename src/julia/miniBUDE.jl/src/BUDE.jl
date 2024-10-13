@@ -63,8 +63,8 @@ function read(io::IO, ::Type{FFParams})
 end
 
 @with_kw mutable struct Params
-  #device::String = "1"
-  device::String = "2" #had to change it in order to detect the cuda and amdgpu device
+  device::String = "1"
+  #device::String = "2" #had to change it in order to detect the cuda and amdgpu device
   list::Bool = false
   numposes::UInt = DefaultNPoses
   iterations::UInt = DefaultInterations
